@@ -2,13 +2,36 @@
 
 Generic notification library for multiple providers (Discord now, Telegram/Line/Email later).
 
-Module path:
+`go-notify` provides:
+- a provider-agnostic `notify` package (message model + provider interface + manager)
+- provider implementations as subpackages (currently `discord`)
 
-- `github.com/benpsk/go-notify`
+## Installation
+
+Install the latest tagged release:
+
+```bash
+go get github.com/benpsk/go-notify@latest
+```
+
+Install a specific version (recommended for production):
+
+```bash
+go get github.com/benpsk/go-notify@v0.1.0
+```
+
+## Import
+
+```go
+import (
+	notify "github.com/benpsk/go-notify"
+	"github.com/benpsk/go-notify/discord"
+)
+```
 
 ## Package layout
 
-- `notify` (module root): generic message + provider interface + manager/registry
+- module root (`notify` package): generic message + provider interface + manager/registry
 - `discord`: Discord webhook provider implementation
 
 ## Basic usage
@@ -47,6 +70,21 @@ func main() {
 		log.Fatal(err)
 	}
 }
+```
+
+## Versioning
+
+This module follows Go module versioning with Git tags (SemVer):
+
+- `v0.x.y`: initial releases, API may still change
+- `v1.x.y`: stable API
+- `v2+`: breaking changes require a new import path suffix (for example `/v2`)
+
+Examples:
+
+```bash
+go get github.com/benpsk/go-notify@v0.1.0
+go get github.com/benpsk/go-notify@latest
 ```
 
 ## Adding other providers later
