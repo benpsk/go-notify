@@ -199,3 +199,127 @@ func TestNotify_PropagatesContextAndSendError(t *testing.T) {
 		t.Fatalf("expected send error, got %v", err)
 	}
 }
+
+func TestNewSMTPClient_NormalizesRecipientsAndOptionalAuth(t *testing.T) {
+	t.Parallel()
+
+	c, err := NewSMTPClient(
+		" smtp.example.com ",
+		587,
+		"   ",
+		"ignored",
+		"Sender <sender@example.com>",
+		[]string{" Ops <ops@example.com> ", "dev@example.com"},
+	)
+	if err != nil {
+		t.Fatalf("new smtp client: %v", err)
+	}
+
+	if c.host != "smtp.example.com" {
+		t.Fatalf("got host %q", c.host)
+	}
+	if c.from != "sender@example.com" {
+		t.Fatalf("got from %q", c.from)
+	}
+	if len(c.defaultTo) != 2 || c.defaultTo[0] != "ops@example.com" || c.defaultTo[1] != "dev@example.com" {
+		t.Fatalf("unexpected default recipients: %#v", c.defaultTo)
+	}
+	if c.auth != nil {
+		t.Fatal("expected auth to be nil when username is empty")
+	}
+}
+
+func TestNewSMTPClient_InvalidDefaultRecipients(t *testing.T) {
+	t.Parallel()
+
+	_, err := NewSMTPClient(
+		"smtp.example.com",
+		587,
+		"",
+		"",
+		"sender@example.com",
+		[]string{"not-an-email"},
+	)
+	if err == nil || !strings.Contains(err.Error(), "default recipients") {
+		t.Fatalf("expected default recipients validation error, got %v", err)
+	}
+}
+
+func TestNotify_NilClient(t *testing.T) {
+	t.Parallel()
+
+	var c *Client
+	if err := c.Notify(context.Background(), notify.Message{Text: "x"}); err == nil {
+		t.Fatal("expected error for nil client")
+	}
+}
+
+func TestNotify_DefaultSubjectAndCleanHeader(t *testing.T) {
+	t.Parallel()
+
+	c, err := NewSMTPClient("smtp.example.com", 587, "", "", "sender@example.com", []string{"ops@example.com"})
+	if err != nil {
+		t.Fatalf("new smtp client: %v", err)
+	}
+
+	var gotBody string
+	c.sendMail = func(addr string, a smtp.Auth, from string, to []string, msg []byte) error {
+		gotBody = string(msg)
+		return nil
+	}
+
+	if err := c.Notify(context.Background(), notify.Message{Text: "hello"}); err != nil {
+		t.Fatalf("notify with default subject: %v", err)
+	}
+	if !strings.Contains(gotBody, "Subject: Notification") {
+		t.Fatalf("expected default subject, got %q", gotBody)
+	}
+
+	if err := c.Notify(context.Background(), notify.Message{Subject: "hello\r\nbcc: bad", Text: "x"}); err != nil {
+		t.Fatalf("notify with sanitized subject: %v", err)
+	}
+	if !strings.Contains(gotBody, "Subject: hello  bcc: bad") {
+		t.Fatalf("expected sanitized subject, got %q", gotBody)
+	}
+}
+
+func TestNotify_InvalidRecipientOverride(t *testing.T) {
+	t.Parallel()
+
+	c, err := NewSMTPClient("smtp.example.com", 587, "", "", "sender@example.com", []string{"ops@example.com"})
+	if err != nil {
+		t.Fatalf("new smtp client: %v", err)
+	}
+
+	err = c.Notify(context.Background(), notify.Message{
+		Text: "x",
+		Meta: map[string]string{"to": "bad-address"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "email recipients") {
+		t.Fatalf("expected recipients parse error, got %v", err)
+	}
+}
+
+func TestNormalizeAddress_RequiresValue(t *testing.T) {
+	t.Parallel()
+
+	if _, err := normalizeAddress("   "); err == nil {
+		t.Fatal("expected error for empty address")
+	}
+}
+
+func TestNormalizeAddresses_SkipsEmptyAndReturnsError(t *testing.T) {
+	t.Parallel()
+
+	got, err := normalizeAddresses([]string{" ", "\t", "a@example.com"})
+	if err != nil {
+		t.Fatalf("normalize addresses: %v", err)
+	}
+	if len(got) != 1 || got[0] != "a@example.com" {
+		t.Fatalf("unexpected normalized addresses: %#v", got)
+	}
+
+	if _, err := normalizeAddresses([]string{"ok@example.com", "bad"}); err == nil {
+		t.Fatal("expected error for invalid recipient")
+	}
+}
